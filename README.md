@@ -13,9 +13,11 @@ npm start
 
 建立帳號時會提示輸入密碼，輸入不會顯示；密碼須為 8–1024 個字元。開啟 <http://127.0.0.1:3000> 登入。沒有預設帳號，也沒有網頁註冊或密碼重設入口。
 
-題库初始為空，可在「我的題庫」手動新增，或匯入 [四種題型的 CSV 範例](public/example-questions.csv)。`npm run dev` 可在伺服器程式修改時自動重啟。
+題库初始為空，可在「題庫」頁手動新增，或匯入 [四種題型的 CSV 範例](public/example-questions.csv)。`npm run dev` 可在伺服器程式修改時自動重啟。
 
-## 帳號與 API keys（僅限 script）
+## 帳號與 API keys
+
+登入後在「帳號」頁可以產生、查看及撤銷自己的 API keys（只能用登入 cookie 操作，API key 本身不能產生新 key）。建立帳號、改密碼與刪除帳號仍需用 script：
 
 ```sh
 npm run account -- list
@@ -27,7 +29,7 @@ npm run account -- key-revoke yourname 1
 npm run account -- delete yourname --confirm
 ```
 
-`password` 直接覆蓋密碼，並撤銷該帳號的全部登入 session；API keys 可另外撤銷。完整 API key 只在建立時顯示一次，資料庫只保存雜湊。每個帳號可以有多把 key。
+`password` 直接覆蓋密碼，並撤銷該帳號的全部登入 session；API keys 可另外撤銷。網頁與 script 產生的完整 API key 都只在建立時顯示一次，資料庫只保存雜湊。每個帳號可以有多把 key。
 
 `delete --confirm` 會永久刪除該帳號、題庫、作答紀錄、登入 session 與 API keys。自動化環境可以透過 `ACCOUNT_PASSWORD` 環境變數提供密碼，請勿把密碼放進指令參數或提交至 Git。
 
@@ -35,13 +37,13 @@ npm run account -- delete yourname --confirm
 
 - 四種題型各有獨立資料表，共同欄位為科目、章節、題目、答案、解析、語言；選擇題另有選項欄位。
 - 題庫以帳號隔離，支援搜尋、題型與科目篩選、逐題編輯、刪除及 CSV 匯入匯出。
-- 可依科目、章節與語言設定範圍，再指定每種題型的題數。每種最多 100 題，單次最多 200 題，隨機抽取且不重複。
+- 可依科目、章節（可複選）與語言設定範圍，再指定每種題型的題數。每種最多 100 題，單次最多 200 題，隨機抽取且不重複。
 - 作答採每題一頁，可點題號，或使用上一題／下一題、鍵盤左右方向鍵。題號列最多顯示五個按鈕，也可用題目旁的下拉選單跳到任意題。作答頁固定在視窗內；遇到超長題目或小螢幕時，題目區可獨立捲動，避免截斷內容。
 - 答案在輸入後約 450 毫秒保存到 SQLite，翻頁及離開練習前也會保存。儲存失敗會顯示提示；重新連線後重試，尚未保存時關閉頁面會提示。
 - 計時從建立練習至交卷，包括關閉分頁或「稍後繼續」的時間；不提供暫停。交卷時間與用時由伺服器計算。
 - 單選題自動批改；多選題需選取全部正確選項且不可多選。未作答選擇題視為答錯。
 - **簡答與申論供自行對照參考答案，不自動評分。** 正確率只計算選擇題。
-- 練習建立時保存題目、答案與解析快照。之後編輯或刪除題庫也不會改變該次作答紀錄；作答中的回應不包含答案與解析。
+- 練習建立時保存題目、答案與解析快照。之後編輯或刪除題庫也不會改變該次作答紀錄；作答中的回應不包含答案與解析。作答紀錄可在「紀錄」頁刪除，刪除後統計會一併更新。
 - 作答紀錄頁顯示最近 100 次，資料庫保留全部紀錄；交卷後可逐頁對照並點「查看解析」。
 
 ## AI 呼叫 API
@@ -63,7 +65,7 @@ npm run account -- delete yourname --confirm
 | GET | `/questions/export` | 匯出 CSV |
 | POST | `/questions/import` | 匯入 CSV，body 是 `{"csv":"CSV內容"}` |
 
-清單與匯出支援 `type`、`subject`、`chapter`、`language`、`search` 查詢參數；清單另外支援 `page`、`limit`（最多 100）。Catalog 的各題型題數支援範圍篩選。
+清單與匯出支援 `type`、`subject`、`chapter`、`language`、`search` 查詢參數（`chapter` 可重複以選多個章節）；清單另外支援 `page`、`limit`（最多 100）。Catalog 的各題型題數支援範圍篩選。
 
 ### 批次新增範例
 
@@ -123,7 +125,6 @@ type,subject,chapter,question,options,answer,explanation,language
 ```sh
 docker compose up -d --build
 docker compose exec practice npm run account -- create yourname
-docker compose exec practice npm run account -- key-create yourname AI
 ```
 
 開啟 <http://127.0.0.1:3000>。SQLite 儲存於 `practice-data` volume；請勿執行 `docker compose down -v`，除非要移除資料。Compose 預設只公開給本機，適合個人使用。

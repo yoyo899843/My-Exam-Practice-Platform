@@ -18,7 +18,7 @@ async function api(path, options = {}) {
 }
 const options = (values, selected, all = '全部') => `<option value="">${all}</option>${values.map(v => `<option value="${escape(v)}" ${v === selected ? 'selected' : ''}>${escape(v)}</option>`).join('')}`;
 function shell(page) {
-  const nav = [['home', '首頁'], ['practice', '練習'], ['bank', '題庫'], ['history', '紀錄']];
+  const nav = [['home', '首頁'], ['practice', '練習'], ['bank', '題庫'], ['history', '紀錄'], ['account', '帳號']];
   root.innerHTML = `<header class="topbar"><nav aria-label="主要導覽">${nav.map(([key, text]) => `<button class="nav-button ${page === key ? 'active' : ''}" data-page="${key}" ${page === key ? 'aria-current="page"' : ''}>${text}</button>`).join('')}</nav><div class="row"><span>${escape(user.username)}</span><button data-action="logout">登出</button></div></header><main class="page" id="main"><div id="content"><p class="muted">載入中…</p></div></main>`;
 }
 function loginPage() {
@@ -31,7 +31,7 @@ function loginPage() {
 }
 function heading(title, action = '') { return `<div class="row between page-heading"><h1 tabindex="-1">${title}</h1>${action}</div>`; }
 function recordRows(records) {
-  return records.map(a => `<div class="record"><div><strong>${escape(a.title)}</strong>${a.status === 'active' ? ' <span class="muted">（作答中）</span>' : ''}<div class="small muted">${date(a.started_at)} · ${a.count} 題${a.status === 'submitted' ? ` · ${duration(a.duration_seconds)}${a.graded ? ` · 答對 ${a.correct} / ${a.graded}` : ''}` : ''}</div></div><button data-action="open-attempt" data-id="${a.id}">${a.status === 'active' ? '繼續' : '查看'}</button></div>`).join('');
+  return records.map(a => `<div class="record"><div><strong>${escape(a.title)}</strong>${a.status === 'active' ? ' <span class="muted">（作答中）</span>' : ''}<div class="small muted">${date(a.started_at)} · ${a.count} 題${a.status === 'submitted' ? ` · ${duration(a.duration_seconds)}${a.graded ? ` · 答對 ${a.correct} / ${a.graded}` : ''}` : ''}</div></div><div class="row"><button data-action="open-attempt" data-id="${a.id}">${a.status === 'active' ? '繼續' : '查看'}</button><button class="danger" data-action="delete-attempt" data-id="${a.id}" aria-label="刪除紀錄：${escape(a.title)}">刪除</button></div></div>`).join('');
 }
 async function home(id) {
   const [c, stats, records] = await Promise.all([api('/catalog'), api('/stats'), api('/attempts')]);
@@ -39,9 +39,10 @@ async function home(id) {
   catalog = c;
   document.querySelector('#content').innerHTML = `${heading('首頁', '<button class="primary" data-page="practice">開始練習</button>')}<p>題目 ${c.total} 題（${Object.entries(typeLabels).map(([type, label]) => `${label} ${c.counts[type]}`).join('、')}）</p><p>完成 ${stats.completed} 次 · 作答 ${stats.answered} 題 · ${Math.floor(stats.seconds / 60)} 分鐘${stats.accuracy === null ? '' : ` · 選擇題正確率 ${stats.accuracy}%`}</p><h2>最近紀錄</h2>${records.length ? recordRows(records.slice(0, 3)) : '<p class="muted">尚無紀錄</p>'}`;
 }
+const chapterBoxes = chapters => chapters.length ? chapters.map(c => `<label class="check"><input type="checkbox" name="chapter" value="${escape(c)}">${escape(c)}</label>`).join('') : '<span class="muted">無</span>';
 async function practice(id) {
   catalog = await api('/catalog'); if (id !== renderId) return;
-  document.querySelector('#content').innerHTML = `${heading('練習')}<form id="practice-form" class="stack"><div class="filters"><label>科目<select name="subject">${options(catalog.subjects, '')}</select></label><label>章節<select name="chapter">${options(catalog.chapters, '')}</select></label><label>語言<select name="language">${options(catalog.languages, '')}</select></label></div><div>${Object.entries(typeLabels).map(([type, label]) => `<div class="count-row"><span>${label}（可用 <span id="available-${type}">${catalog.counts[type]}</span> 題）</span><input type="number" name="${type}" aria-label="${label}題數" value="0" min="0" max="${Math.min(100, catalog.counts[type])}" step="1" inputmode="numeric"></div>`).join('')}</div><p>共 <span id="total-count">0</span> 題</p><div class="form-error" id="practice-error" role="alert"></div><div><button class="primary" id="start-button" disabled>開始</button></div></form>`;
+  document.querySelector('#content').innerHTML = `${heading('練習')}<form id="practice-form" class="stack"><div class="filters"><label>科目<select name="subject">${options(catalog.subjects, '')}</select></label><fieldset class="chapters"><legend>章節（不勾選為全部）</legend><div id="chapter-list">${chapterBoxes(catalog.chapters)}</div></fieldset><label>語言<select name="language">${options(catalog.languages, '')}</select></label></div><div>${Object.entries(typeLabels).map(([type, label]) => `<div class="count-row"><span>${label}（可用 <span id="available-${type}">${catalog.counts[type]}</span> 題）</span><input type="number" name="${type}" aria-label="${label}題數" value="0" min="0" max="${Math.min(100, catalog.counts[type])}" step="1" inputmode="numeric"></div>`).join('')}</div><p>共 <span id="total-count">0</span> 題</p><div class="form-error" id="practice-error" role="alert"></div><div><button class="primary" id="start-button" disabled>開始</button></div></form>`;
   const form = document.querySelector('#practice-form');
   const total = () => { const count = Object.keys(typeLabels).reduce((n, t) => n + Number(form.elements[t].value || 0), 0); document.querySelector('#total-count').textContent = count; document.querySelector('#start-button').disabled = count < 1 || count > 200; };
   form.addEventListener('input', total);
@@ -50,18 +51,19 @@ async function practice(id) {
     if (!['subject', 'chapter', 'language'].includes(event.target.name)) return;
     const version = ++filterVersion;
     document.querySelector('#start-button').disabled = true;
-    if (event.target.name === 'subject') form.elements.chapter.value = '';
+    if (event.target.name === 'subject') form.querySelectorAll('[name=chapter]').forEach(el => { el.checked = false; });
     try {
-      const query = new URLSearchParams(Object.fromEntries(['subject', 'chapter', 'language'].map(k => [k, form.elements[k].value])));
+      const data = new FormData(form);
+      const query = new URLSearchParams([['subject', data.get('subject')], ['language', data.get('language')], ...data.getAll('chapter').map(c => ['chapter', c])]);
       const c = await api(`/catalog?${query}`); if (version !== filterVersion || !form.isConnected) return;
-      if (event.target.name === 'subject') form.elements.chapter.innerHTML = options(c.chapters, '');
+      if (event.target.name === 'subject') document.querySelector('#chapter-list').innerHTML = chapterBoxes(c.chapters);
       for (const type of Object.keys(typeLabels)) { const el = form.elements[type]; const max = Math.min(100, c.counts[type]); el.max = max; el.value = Math.min(Number(el.value), max); document.querySelector(`#available-${type}`).textContent = c.counts[type]; }
       total();
     } catch (error) { toast(error.message); }
   });
   form.addEventListener('submit', async event => {
     event.preventDefault(); const button = document.querySelector('#start-button'); button.disabled = true;
-    try { const values = Object.fromEntries(new FormData(form)); const counts = Object.fromEntries(Object.keys(typeLabels).map(t => [t, Number(values[t])])); const a = await api('/attempts', { method: 'POST', body: { counts, subject: values.subject, chapter: values.chapter, language: values.language } }); location.hash = `attempt/${a.id}`; }
+    try { const values = Object.fromEntries(new FormData(form)); const counts = Object.fromEntries(Object.keys(typeLabels).map(t => [t, Number(values[t])])); const a = await api('/attempts', { method: 'POST', body: { counts, subject: values.subject, chapters: new FormData(form).getAll('chapter'), language: values.language } }); location.hash = `attempt/${a.id}`; }
     catch (error) { document.querySelector('#practice-error').textContent = error.message; total(); }
   });
 }
@@ -69,12 +71,24 @@ async function bank(id) {
   const query = new URLSearchParams({ ...bankFilter, page: bankPage, limit: 10 });
   const [c, data] = await Promise.all([api('/catalog'), api(`/questions?${query}`)]); if (id !== renderId) return;
   catalog = c;
-  document.querySelector('#content').innerHTML = `${heading('題庫', '<button class="primary" data-action="new-question">新增</button>')}<div class="toolbar"><button data-action="import-csv">匯入 CSV</button><button data-action="export-csv">匯出 CSV</button><button data-action="api-help">API</button></div><form id="bank-filter" class="toolbar"><input name="search" aria-label="搜尋題目" placeholder="搜尋" value="${escape(bankFilter.search)}"><select name="type" aria-label="依題型篩選">${options(Object.keys(typeLabels), bankFilter.type, '所有題型').replace(/>(single|multiple|short|essay)</g, (_m, t) => `>${typeLabels[t]}<`)}</select><select name="subject" aria-label="依科目篩選">${options(c.subjects, bankFilter.subject, '所有科目')}</select><button type="submit">搜尋</button></form><p class="small muted">${data.total} 題</p>${data.questions.length ? data.questions.map(q => `<div class="question-row"><div><div class="small muted">${typeLabels[q.type]} · ${escape(q.subject)} / ${escape(q.chapter)} · ${escape(q.language)}</div><div>${escape(q.question.length > 150 ? q.question.slice(0, 150) + '…' : q.question)}</div></div><div class="row"><button data-action="edit-question" data-type="${q.type}" data-id="${q.id}">編輯</button><button class="danger" data-action="delete-question" data-type="${q.type}" data-id="${q.id}" aria-label="刪除這道題目">刪除</button></div></div>`).join('') : `<p class="muted">沒有題目${c.total ? ` <button data-action="clear-filter">清除篩選</button>` : ''}</p>`}<div class="row between pagination"><span class="small muted">${bankPage} / ${Math.max(1, Math.ceil(data.total / 10))}</span><div class="row"><button data-action="bank-prev" ${bankPage <= 1 ? 'disabled' : ''}>上一頁</button><button data-action="bank-next" ${bankPage * 10 >= data.total ? 'disabled' : ''}>下一頁</button></div></div>`;
+  document.querySelector('#content').innerHTML = `${heading('題庫', '<button class="primary" data-action="new-question">新增</button>')}<div class="toolbar"><button data-action="import-csv">匯入 CSV</button><button data-action="export-csv">匯出 CSV</button></div><form id="bank-filter" class="toolbar"><input name="search" aria-label="搜尋題目" placeholder="搜尋" value="${escape(bankFilter.search)}"><select name="type" aria-label="依題型篩選">${options(Object.keys(typeLabels), bankFilter.type, '所有題型').replace(/>(single|multiple|short|essay)</g, (_m, t) => `>${typeLabels[t]}<`)}</select><select name="subject" aria-label="依科目篩選">${options(c.subjects, bankFilter.subject, '所有科目')}</select><button type="submit">搜尋</button></form><p class="small muted">${data.total} 題</p>${data.questions.length ? data.questions.map(q => `<div class="question-row"><div><div class="small muted">${typeLabels[q.type]} · ${escape(q.subject)} / ${escape(q.chapter)} · ${escape(q.language)}</div><div>${escape(q.question.length > 150 ? q.question.slice(0, 150) + '…' : q.question)}</div></div><div class="row"><button data-action="edit-question" data-type="${q.type}" data-id="${q.id}">編輯</button><button class="danger" data-action="delete-question" data-type="${q.type}" data-id="${q.id}" aria-label="刪除這道題目">刪除</button></div></div>`).join('') : `<p class="muted">沒有題目${c.total ? ` <button data-action="clear-filter">清除篩選</button>` : ''}</p>`}<div class="row between pagination"><span class="small muted">${bankPage} / ${Math.max(1, Math.ceil(data.total / 10))}</span><div class="row"><button data-action="bank-prev" ${bankPage <= 1 ? 'disabled' : ''}>上一頁</button><button data-action="bank-next" ${bankPage * 10 >= data.total ? 'disabled' : ''}>下一頁</button></div></div>`;
   document.querySelector('#bank-filter').addEventListener('submit', event => { event.preventDefault(); bankFilter = Object.fromEntries(new FormData(event.target)); bankPage = 1; navigate('bank'); });
 }
 async function history(id) {
   const records = await api('/attempts'); if (id !== renderId) return;
   document.querySelector('#content').innerHTML = `${heading('紀錄')}${records.length ? recordRows(records) : '<p class="muted">尚無紀錄</p>'}`;
+}
+async function account(id) {
+  const keys = await api('/keys'); if (id !== renderId) return;
+  document.querySelector('#content').innerHTML = `${heading('帳號')}<p>帳號：${escape(user.username)}</p><h2>API keys</h2><form id="key-form" class="row key-form"><label>名稱<input name="label" maxlength="100" placeholder="AI"></label><button class="primary" type="submit">產生 API key</button></form>${keys.length ? keys.map(k => `<div class="record"><div><strong>${escape(k.label)}</strong><div class="small muted">${escape(k.prefix)}… · ${date(k.created_at)}</div></div><button class="danger" data-action="revoke-key" data-id="${k.id}" aria-label="撤銷 ${escape(k.label)}">撤銷</button></div>`).join('') : '<p class="muted">尚無 API key</p>'}<p><button data-action="api-help">API 用法</button></p>`;
+  document.querySelector('#key-form').addEventListener('submit', async event => {
+    event.preventDefault(); const button = event.target.querySelector('[type=submit]'); button.disabled = true;
+    try {
+      const key = await api('/keys', { method: 'POST', body: { label: event.target.elements.label.value } });
+      await navigate('account');
+      openModal('新的 API key', `<p>只會顯示這一次，請立即複製保存。</p><pre class="code" id="new-key">${escape(key.token)}</pre>`, '<button data-action="copy-key">複製</button><button class="primary" data-action="close-modal">完成</button>');
+    } catch (error) { toast(error.message); button.disabled = false; }
+  });
 }
 
 function openModal(title, content, actions = '') {
@@ -125,7 +139,7 @@ function importDialog() {
 }
 function apiHelp() {
   const payload = { questions: [{ type: 'single', subject: '計算機概論', chapter: '資料庫', question: 'SQLite 屬於哪一種資料庫？', options: ['關聯式資料庫', '圖形資料庫'], answer: 0, explanation: 'SQLite 使用資料表與 SQL 儲存及查詢資料。', language: 'zh-TW' }] };
-  openModal('API', `<div class="stack"><div><div class="code">POST ${escape(location.origin)}/api/v1/questions/bulk\nX-API-Key: 你的 API key\nContent-Type: application/json</div></div><div><pre class="code">${escape(JSON.stringify(payload, null, 2))}</pre></div><p class="small muted">type：single、multiple、short、essay。每批最多 2,000 題。</p></div>`);
+  openModal('API', `<div class="stack"><div><p class="muted">在「帳號」頁產生 API key。</p><div class="code">POST ${escape(location.origin)}/api/v1/questions/bulk\nX-API-Key: 你的 API key\nContent-Type: application/json</div></div><div><pre class="code">${escape(JSON.stringify(payload, null, 2))}</pre></div><p class="small muted">type：single、multiple、short、essay。每批最多 2,000 題。</p></div>`);
 }
 
 const keyFor = q => `${q.type}:${q.id}`;
@@ -200,8 +214,8 @@ async function navigate(page) {
   const id = ++renderId; clearInterval(timer);
   if (!user) return;
   if (page.startsWith('attempt/')) { root.innerHTML = '<p class="page muted">載入中…</p>'; await loadAttempt(page.slice(8), id); return; }
-  activeAttempt = null; shell(['home', 'practice', 'bank', 'history'].includes(page) ? page : 'home');
-  await ({ home, practice, bank, history }[page] || home)(id);
+  activeAttempt = null; shell(['home', 'practice', 'bank', 'history', 'account'].includes(page) ? page : 'home');
+  await ({ home, practice, bank, history, account }[page] || home)(id);
   if (id === renderId && document.activeElement === document.body) document.querySelector('#content h1')?.focus({ preventScroll: true });
 }
 async function route(page) { if (activeAttempt?.status === 'active') await saveProgress(); if (location.hash.slice(1) === page) await navigate(page); else location.hash = page; }
@@ -239,6 +253,11 @@ async function handleAction(button) {
     }
     if (action === 'csv-template') { const response = await fetch('/example-questions.csv'); download(await response.text(), 'example-questions.csv'); }
     if (action === 'open-attempt') await route(`attempt/${id}`);
+    if (action === 'delete-attempt') openModal('刪除紀錄？', '<p>無法還原。</p>', `<button data-action="close-modal">取消</button><button class="danger" data-action="confirm-delete-attempt" data-id="${id}">刪除</button>`);
+    if (action === 'confirm-delete-attempt') { button.disabled = true; await api(`/attempts/${id}`, { method: 'DELETE' }); modal.close(); toast('紀錄已刪除'); await navigate(location.hash.slice(1) || 'home'); }
+    if (action === 'revoke-key') openModal('撤銷 API key？', '<p>使用這個 key 的工具將無法再加入題目。</p>', `<button data-action="close-modal">取消</button><button class="danger" data-action="confirm-revoke-key" data-id="${id}">撤銷</button>`);
+    if (action === 'confirm-revoke-key') { button.disabled = true; await api(`/keys/${id}`, { method: 'DELETE' }); modal.close(); toast('API key 已撤銷'); await navigate('account'); }
+    if (action === 'copy-key') { await navigator.clipboard.writeText(document.querySelector('#new-key').textContent); toast('已複製'); }
     if (action === 'leave-attempt') { await saveProgress(); await route('history'); }
     if (action === 'exam-page') await examPage(Number(button.dataset.index));
     if (action === 'exam-prev') await examPage(index - 1);

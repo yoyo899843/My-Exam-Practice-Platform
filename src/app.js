@@ -4,7 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { fileURLToPath } from 'node:url';
 import { randomInt } from 'node:crypto';
 import { openDatabase, transaction } from './db.js';
-import { hashToken, newToken, checkPassword, passwordHash } from './auth.js';
+import { hashToken, newToken, checkPassword, passwordHash, issueKey } from './auth.js';
 import { questionTypes, typeFor, validateQuestion } from './question-types.js';
 import { allQuestions, insertQuestion, importQuestions, parseCsv, exportCsv, unpack } from './questions.js';
 
@@ -134,12 +134,13 @@ export function createApp(db = openDatabase()) {
     }));
   });
   attemptRouter.post('/attempts', (req, res) => {
-    const { counts, subject, chapter, language } = req.body || {};
+    const { counts, subject, chapters = [], language } = req.body || {};
+    if (!Array.isArray(chapters) || chapters.length > 200 || chapters.some(c => typeof c !== 'string')) error('章節格式錯誤');
     if (!counts || typeof counts !== 'object' || Array.isArray(counts)) error('請選擇題數');
     for (const [type, count] of Object.entries(counts)) { typeFor(type); if (!Number.isInteger(count) || count < 0 || count > 100) error('每種題型請選擇 0–100 題'); }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total < 1 || total > 200) error('每次練習請選擇 1–200 題');
-    const pool = allQuestions(db, req.user.id, { subject, chapter, language });
+    const pool = allQuestions(db, req.user.id, { subject, chapter: chapters, language });
     const selected = [];
     for (const [type, count] of Object.entries(counts)) {
       const available = pool.filter(q => q.type === type);
@@ -147,11 +148,15 @@ export function createApp(db = openDatabase()) {
       for (let i = available.length - 1; i > 0; i--) { const j = randomInt(i + 1); [available[i], available[j]] = [available[j], available[i]]; }
       selected.push(...available.slice(0, count));
     }
-    const id = Number(db.prepare('INSERT INTO attempts(user_id,title,questions_json,started_at) VALUES(?,?,?,?)').run(req.user.id, [subject || '綜合練習', chapter].filter(Boolean).join(' · '), JSON.stringify(selected), now()).lastInsertRowid);
+    const id = Number(db.prepare('INSERT INTO attempts(user_id,title,questions_json,started_at) VALUES(?,?,?,?)').run(req.user.id, [subject || '綜合練習', chapters.join('、')].filter(Boolean).join(' · '), JSON.stringify(selected), now()).lastInsertRowid);
     req.params.id = id;
     res.status(201).json(attemptView(getAttempt(req)));
   });
   attemptRouter.get('/attempts/:id', (req, res) => res.json(attemptView(getAttempt(req))));
+  attemptRouter.delete('/attempts/:id', (req, res) => {
+    db.prepare('DELETE FROM attempts WHERE id=?').run(getAttempt(req).id);
+    res.json({ ok: true });
+  });
   attemptRouter.patch('/attempts/:id', (req, res) => {
     const attempt = getAttempt(req);
     if (attempt.status !== 'active') error('此練習已交卷', 409);
@@ -177,6 +182,20 @@ export function createApp(db = openDatabase()) {
     res.json(view);
   });
   app.use('/api', sessionAuth, attemptRouter);
+
+  // Key management is session-only so an API key cannot mint or revoke keys.
+  const accountRouter = express.Router();
+  accountRouter.get('/keys', (req, res) => res.json(db.prepare('SELECT id,label,prefix,created_at FROM api_keys WHERE user_id=? ORDER BY id DESC').all(req.user.id)));
+  accountRouter.post('/keys', (req, res) => {
+    const label = typeof req.body?.label === 'string' && req.body.label.trim() ? req.body.label.trim() : 'AI';
+    if (label.length > 100) error('名稱最多 100 個字元');
+    res.status(201).json(issueKey(db, req.user.id, label));
+  });
+  accountRouter.delete('/keys/:id', (req, res) => {
+    if (!db.prepare('DELETE FROM api_keys WHERE id=? AND user_id=?').run(req.params.id, req.user.id).changes) error('找不到 API key', 404);
+    res.json({ ok: true });
+  });
+  app.use('/api', sessionAuth, accountRouter);
   app.use('/api', (_req, _res) => error('找不到此 API', 404));
   app.use(express.static(fileURLToPath(new URL('../public', import.meta.url))));
   app.use((err, _req, res, _next) => {

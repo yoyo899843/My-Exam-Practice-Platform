@@ -9,7 +9,10 @@ export function allQuestions(db, userId, filter = {}) {
   return types.flatMap(([type, { table }]) => {
     const params = [userId];
     let where = 'user_id=?';
-    for (const field of ['subject', 'chapter', 'language']) if (filter[field]) { where += ` AND ${field}=?`; params.push(filter[field]); }
+    for (const field of ['subject', 'chapter', 'language']) {
+      const values = [filter[field]].flat().filter(v => typeof v === 'string' && v);
+      if (values.length) { where += ` AND ${field} IN (${values.map(() => '?').join(',')})`; params.push(...values); }
+    }
     return db.prepare(`SELECT * FROM ${table} WHERE ${where} ORDER BY id DESC`).all(...params).map(row => unpack(row, type));
   }).filter(q => !filter.search || [q.subject, q.chapter, q.question].some(x => x.toLowerCase().includes(filter.search.toLowerCase())));
 }

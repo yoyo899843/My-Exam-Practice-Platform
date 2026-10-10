@@ -84,3 +84,10 @@ dialog h2{margin:0}
 .saving{font-size:14px;color:var(--muted)}
 @media(max-width:640px){.filters,.grid2{grid-template-columns:1fr}.question-row,.record{flex-direction:column;align-items:flex-start}}
 @media(max-height:500px) and (orientation:landscape){.exam-main{padding:8px 16px}.exam-footer-inner>div:first-child>.row{margin-bottom:4px!important}}
+.chapters{grid-column:1/-1;border:0;padding:0;margin:0;min-width:0}
+.chapters legend{padding:0;margin-bottom:4px}
+#chapter-list{display:flex;flex-wrap:wrap;gap:0 16px}
+.check{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer}
+.check input{width:20px;min-height:20px;flex-shrink:0}
+.key-form{align-items:flex-end;margin-bottom:8px}
+.key-form label{flex:1;min-width:160px}
