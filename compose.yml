@@ -1,0 +1,14 @@
+services:
+  practice:
+    build: .
+    ports:
+      - "8007:3000"
+    environment:
+      HOST: 0.0.0.0
+      NODE_ENV: ${NODE_ENV:-development}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+    volumes:
+      - practice-data:/app/data
+    restart: unless-stopped
+volumes:
+  practice-data:

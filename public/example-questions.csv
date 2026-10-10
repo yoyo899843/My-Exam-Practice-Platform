@@ -1,0 +1,5 @@
+﻿type,subject,chapter,question,options,answer,explanation,language
+single,計算機概論,資料庫,SQLite 屬於哪種資料庫？,"[""關聯式資料庫"",""圖形資料庫"",""鍵值資料庫""]",0,SQLite 使用關聯式資料表與 SQL。,zh-TW
+multiple,計算機概論,資料庫,哪些是 SQL 的資料操作指令？,"[""SELECT"",""INSERT"",""HTTP""]","[0,1]",SELECT 查詢資料，INSERT 新增資料，HTTP 是網路協定。,zh-TW
+short,計算機概論,資料庫,主鍵的主要用途是什麼？,[],"""唯一識別資料表中的每一筆資料。""",主鍵不能重複，也不能是 NULL。,zh-TW
+essay,計算機概論,資料庫,請比較 SQLite 與獨立資料庫伺服器的使用情境。,[],"""SQLite 嵌入應用程式，適合個人使用與小型應用。獨立資料庫伺服器適合多人並行與集中管理。""",可從部署、並行寫入、管理與擴充需求進行比較。,zh-TW
