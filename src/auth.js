@@ -5,7 +5,7 @@ export const hashToken = token => createHash('sha256').update(token).digest('hex
 export const newToken = () => randomBytes(32).toString('base64url');
 const settings = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 export function passwordHash(password) {
-  if (typeof password !== 'string' || password.length < 12 || password.length > 1024) throw new Error('密碼需為 12–1024 個字元');
+  if (typeof password !== 'string' || password.length < 8 || password.length > 1024) throw new Error('密碼需為 8–1024 個字元');
   const salt = randomBytes(16).toString('hex');
   return `${salt}:${scryptSync(password, salt, 64, settings).toString('hex')}`;
 }
