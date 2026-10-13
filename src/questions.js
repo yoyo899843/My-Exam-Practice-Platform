@@ -4,11 +4,12 @@ import { questionTypes, typeFor, validateQuestion } from './question-types.js';
 import { transaction } from './db.js';
 export const fields = ['type', 'subject', 'chapter', 'question', 'options', 'answer', 'explanation', 'language'];
 export function unpack(row, type) { return { ...row, type, answer: JSON.parse(row.answer), options: JSON.parse(row.options) }; }
-export function allQuestions(db, userId, filter = {}) {
+// The question bank is shared by all accounts; user_id only records who created a question.
+export function allQuestions(db, filter = {}) {
   const types = filter.type ? [[filter.type, typeFor(filter.type)]] : Object.entries(questionTypes);
   return types.flatMap(([type, { table }]) => {
-    const params = [userId];
-    let where = 'user_id=?';
+    const params = [];
+    let where = '1=1';
     for (const field of ['subject', 'chapter', 'language']) {
       const values = [filter[field]].flat().filter(v => typeof v === 'string' && v);
       if (values.length) { where += ` AND ${field} IN (${values.map(() => '?').join(',')})`; params.push(...values); }

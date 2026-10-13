@@ -1,4 +1,5 @@
 import { openDatabase, transaction } from '../src/db.js';
+import { questionTypes } from '../src/question-types.js';
 import { createAccount, passwordHash, issueKey } from '../src/auth.js';
 
 async function readPassword() {
@@ -43,7 +44,16 @@ try {
       transaction(db, () => { db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hash, user.id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id); });
       console.log('密碼已覆蓋，所有登入 session 已撤銷。API keys 維持有效，可用 key-revoke 另外撤銷。');
     }
-    if (command === 'delete') { if (argument !== '--confirm') throw new Error('刪除會永久移除所有資料；請加上 --confirm'); db.prepare('DELETE FROM users WHERE id=?').run(user.id); console.log(`已刪除 ${username} 與其資料`); }
+    if (command === 'delete') {
+      if (argument !== '--confirm') throw new Error('刪除會永久移除該帳號的作答紀錄與 API keys；請加上 --confirm');
+      // Questions are shared, so hand them to another account instead of cascading the delete.
+      const heir = db.prepare('SELECT id FROM users WHERE id<>? ORDER BY id LIMIT 1').get(user.id);
+      transaction(db, () => {
+        if (heir) for (const { table } of Object.values(questionTypes)) db.prepare(`UPDATE ${table} SET user_id=? WHERE user_id=?`).run(heir.id, user.id);
+        db.prepare('DELETE FROM users WHERE id=?').run(user.id);
+      });
+      console.log(`已刪除 ${username}${heir ? '；題庫題目保留' : '；這是最後一個帳號，題庫已一併刪除'}`);
+    }
     if (command === 'key-create') { const key = issueKey(db, user.id, argument || 'AI'); console.log(`API key ID：${key.id}\n請立即安全保存，完整 key 只顯示一次：\n${key.token}`); }
     if (command === 'key-list') console.table(db.prepare('SELECT id,label,prefix,created_at FROM api_keys WHERE user_id=?').all(user.id));
     if (command === 'key-revoke') { if (!db.prepare('DELETE FROM api_keys WHERE user_id=? AND id=?').run(user.id, Number(argument) || 0).changes) throw new Error('找不到 API key'); console.log('API key 已撤銷'); }

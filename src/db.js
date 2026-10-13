@@ -18,7 +18,8 @@ export function openDatabase(path = process.env.DATABASE_PATH || './data/practic
     subject TEXT NOT NULL, chapter TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL,
     explanation TEXT NOT NULL, language TEXT NOT NULL, options TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE INDEX IF NOT EXISTS ${table}_owner ON ${table}(user_id, subject, chapter, language);`);
+    CREATE INDEX IF NOT EXISTS ${table}_scope ON ${table}(subject, chapter, language);
+    DROP INDEX IF EXISTS ${table}_owner;`);
   return db;
 }
 export function transaction(db, fn) {

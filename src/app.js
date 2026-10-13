@@ -58,40 +58,40 @@ export function createApp(db = openDatabase()) {
   const questionRouter = express.Router();
   questionRouter.get('/types', (_req, res) => res.json(Object.entries(questionTypes).map(([id, t]) => ({ id, label: t.label, autoGraded: ['single', 'multiple'].includes(id) }))));
   questionRouter.get('/catalog', (req, res) => {
-    const questions = allQuestions(db, req.user.id);
-    const filtered = allQuestions(db, req.user.id, req.query);
+    const questions = allQuestions(db);
+    const filtered = allQuestions(db, req.query);
     res.json({ total: questions.length, counts: Object.fromEntries(Object.keys(questionTypes).map(t => [t, filtered.filter(q => q.type === t).length])),
       subjects: [...new Set(questions.map(q => q.subject))].sort(),
       chapters: [...new Set(questions.filter(q => !req.query.subject || q.subject === req.query.subject).map(q => q.chapter))].sort(),
       languages: [...new Set(questions.map(q => q.language))].sort() });
   });
-  questionRouter.get('/questions/export', (req, res) => res.type('text/csv; charset=utf-8').attachment('questions.csv').send(exportCsv(allQuestions(db, req.user.id, req.query))));
+  questionRouter.get('/questions/export', (req, res) => res.type('text/csv; charset=utf-8').attachment('questions.csv').send(exportCsv(allQuestions(db, req.query))));
   questionRouter.post('/questions/import', (req, res) => {
     const inserted = importQuestions(db, req.user.id, parseCsv(req.body?.csv));
     res.status(201).json({ imported: inserted.length });
   });
   questionRouter.post('/questions/bulk', (req, res) => res.status(201).json({ questions: importQuestions(db, req.user.id, req.body?.questions) }));
   questionRouter.get('/questions', (req, res) => {
-    const questions = allQuestions(db, req.user.id, req.query);
+    const questions = allQuestions(db, req.query);
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
     res.json({ total: questions.length, page, limit, questions: questions.slice((page - 1) * limit, page * limit) });
   });
   questionRouter.post('/questions', (req, res) => res.status(201).json(insertQuestion(db, req.user.id, req.body)));
   questionRouter.get('/questions/:type/:id', (req, res) => {
-    const row = db.prepare(`SELECT * FROM ${typeFor(req.params.type).table} WHERE id=? AND user_id=?`).get(req.params.id, req.user.id);
+    const row = db.prepare(`SELECT * FROM ${typeFor(req.params.type).table} WHERE id=?`).get(req.params.id);
     if (!row) error('找不到題目', 404);
     res.json(unpack(row, req.params.type));
   });
   questionRouter.put('/questions/:type/:id', (req, res) => {
     if (req.body?.type !== req.params.type) error('編輯時不可變更題型；請建立新題目');
     const q = validateQuestion(req.body);
-    const result = db.prepare(`UPDATE ${typeFor(q.type).table} SET subject=?,chapter=?,question=?,answer=?,explanation=?,language=?,options=?,updated_at=? WHERE id=? AND user_id=?`).run(q.subject, q.chapter, q.question, JSON.stringify(q.answer), q.explanation, q.language, JSON.stringify(q.options), now(), req.params.id, req.user.id);
+    const result = db.prepare(`UPDATE ${typeFor(q.type).table} SET subject=?,chapter=?,question=?,answer=?,explanation=?,language=?,options=?,updated_at=? WHERE id=?`).run(q.subject, q.chapter, q.question, JSON.stringify(q.answer), q.explanation, q.language, JSON.stringify(q.options), now(), req.params.id);
     if (!result.changes) error('找不到題目', 404);
     res.json({ ...q, id: Number(req.params.id) });
   });
   questionRouter.delete('/questions/:type/:id', (req, res) => {
-    const result = db.prepare(`DELETE FROM ${typeFor(req.params.type).table} WHERE id=? AND user_id=?`).run(req.params.id, req.user.id);
+    const result = db.prepare(`DELETE FROM ${typeFor(req.params.type).table} WHERE id=?`).run(req.params.id);
     if (!result.changes) error('找不到題目', 404);
     res.json({ ok: true });
   });
@@ -140,7 +140,7 @@ export function createApp(db = openDatabase()) {
     for (const [type, count] of Object.entries(counts)) { typeFor(type); if (!Number.isInteger(count) || count < 0 || count > 100) error('每種題型請選擇 0–100 題'); }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total < 1 || total > 200) error('每次練習請選擇 1–200 題');
-    const pool = allQuestions(db, req.user.id, { subject, chapter: chapters, language });
+    const pool = allQuestions(db, { subject, chapter: chapters, language });
     const selected = [];
     for (const [type, count] of Object.entries(counts)) {
       const available = pool.filter(q => q.type === type);
