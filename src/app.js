@@ -11,6 +11,7 @@ import { allQuestions, insertQuestion, importQuestions, parseCsv, exportCsv, unp
 const error = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const publicQuestion = ({ answer, explanation, user_id, ...q }) => q;
 const now = () => new Date().toISOString();
+const apiKey = req => req.get('X-API-Key') || req.get('Authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1];
 function cookieToken(req) { return (req.headers.cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith('practice_session='))?.slice(17); }
 
 export function createApp(db = openDatabase()) {
@@ -30,6 +31,7 @@ export function createApp(db = openDatabase()) {
   };
   // Custom header is required on cookie-authenticated mutations; cross-origin requests cannot supply it without CORS.
   app.use('/api', (req, _res, next) => {
+    if (!req.path.startsWith('/v1/') && !cookieToken(req) && apiKey(req)) return next(Object.assign(new Error('API key 只能用於 /api/v1/ 開頭的路徑，例如 POST /api/v1/questions/bulk'), { status: 401 }));
     if (!req.path.startsWith('/v1/') && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.get('X-Requested-With') !== 'PracticeRoom') return next(Object.assign(new Error('無效的請求來源'), { status: 403 }));
     next();
   });
@@ -107,11 +109,11 @@ export function createApp(db = openDatabase()) {
     res.json({ ok: true });
   });
   app.use('/api/v1', rateLimit({ windowMs: 60000, limit: 120, message: { error: 'API 請求過多，請稍後重試' } }), (req, _res, next) => {
-    const key = req.get('X-API-Key');
+    const key = apiKey(req);
     req.user = key && db.prepare('SELECT u.id,u.username FROM users u JOIN api_keys k ON k.user_id=u.id WHERE k.key_hash=?').get(hashToken(key));
     if (!req.user) return next(Object.assign(new Error('無效的 API key'), { status: 401 }));
     next();
-  }, questionRouter);
+  }, questionRouter, (_req, _res) => error('找不到此 API；可用路徑見 README「AI 呼叫 API」', 404));
   app.use('/api', sessionAuth, questionRouter);
 
   const attemptRouter = express.Router();

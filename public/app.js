@@ -150,7 +150,7 @@ function importDialog() {
 }
 function apiHelp() {
   const payload = { questions: [{ type: 'single', subject: '計算機概論', chapter: '資料庫', question: 'SQLite 屬於哪一種資料庫？', options: ['關聯式資料庫', '圖形資料庫'], answer: 0, explanation: 'SQLite 使用資料表與 SQL 儲存及查詢資料。', language: 'zh-TW' }] };
-  openModal('API', `<div class="stack"><div><p class="muted">在「帳號」頁產生 API key。</p><div class="code">POST ${escape(location.origin)}/api/v1/questions/bulk\nX-API-Key: 你的 API key\nContent-Type: application/json</div></div><div><pre class="code">${escape(JSON.stringify(payload, null, 2))}</pre></div><p class="small muted">type：single、multiple、short、essay。每批最多 2,000 題。</p></div>`);
+  openModal('API', `<div class="stack"><div><p class="muted">在「帳號」頁產生 API key。</p><div class="code">POST ${escape(location.origin)}/api/v1/questions/bulk\nX-API-Key: 你的 API key（或 Authorization: Bearer 你的 API key）\nContent-Type: application/json</div></div><div><pre class="code">${escape(JSON.stringify(payload, null, 2))}</pre></div><p class="small muted">type：single、multiple、short、essay。每批最多 2,000 題。</p></div>`);
 }
 
 const keyFor = q => `${q.type}:${q.id}`;

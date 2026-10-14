@@ -50,9 +50,9 @@ npm run account -- delete yourname --confirm
 
 ## AI 呼叫 API
 
-外部 AI 工具需具備 HTTP 呼叫能力。先在「帳號」頁建立 API key（加入的題目進入共用題庫），使用 `X-API-Key` header 驗證；網頁則使用登入 cookie。專案提供接收題目的 API，不主動呼叫 AI，也不需要設定模型服務金鑰。
+外部 AI 工具需具備 HTTP 呼叫能力。先在「帳號」頁建立 API key（加入的題目進入共用題庫），使用 `X-API-Key: <key>` 或 `Authorization: Bearer <key>` header 驗證；網頁則使用登入 cookie。專案提供接收題目的 API，不主動呼叫 AI，也不需要設定模型服務金鑰。
 
-以下路由都使用 `/api/v1` 前綴，且都需要 API key：
+以下路由都使用 `/api/v1` 前綴，且都需要 API key。API key 只能用在 `/api/v1/` 路徑；少了 `/v1` 會回傳 401，`/api/v1/` 底下不存在的路徑回傳 404：
 
 | 方法 | 路徑 | 用途 |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ curl http://127.0.0.1:3000/api/v1/questions/bulk \
   --data-binary @questions.json
 ```
 
-成功回傳 HTTP 201 與 `{"questions":[...]}`。每批 1–2,000 題，JSON 請求最多 5 MB。缺少 key 回傳 401，格式錯誤回傳 400，找不到題目回傳 404。API 每個來源 IP 每分鐘最多 120 次請求。
+成功回傳 HTTP 201 與 `{"questions":[...]}`。每批 1–2,000 題，JSON 請求最多 5 MB。缺少或無效的 key 回傳 401，格式錯誤回傳 400，找不到題目回傳 404。API 每個來源 IP 每分鐘最多 120 次請求。
 
 | type | options | answer |
 | --- | --- | --- |
