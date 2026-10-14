@@ -11,7 +11,7 @@ async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, { ...options, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'PracticeRoom', ...options.headers }, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
   const data = await response.json();
   if (!response.ok) {
-    if (response.status === 401 && path !== '/login') { user = null; clearInterval(timer); loginPage(); }
+    if (response.status === 401 && !['/login', '/register'].includes(path)) { user = null; clearInterval(timer); loginPage(); }
     throw new Error(data.error || '請求失敗');
   }
   return data;
@@ -21,12 +21,23 @@ function shell(page) {
   const nav = [['home', '首頁'], ['practice', '練習'], ['bank', '題庫'], ['history', '紀錄'], ['account', '帳號']];
   root.innerHTML = `<header class="topbar"><nav aria-label="主要導覽">${nav.map(([key, text]) => `<button class="nav-button ${page === key ? 'active' : ''}" data-page="${key}" ${page === key ? 'aria-current="page"' : ''}>${text}</button>`).join('')}</nav><div class="row"><span>${escape(user.username)}</span><button data-action="logout">登出</button></div></header><main class="page" id="main"><div id="content"><p class="muted">載入中…</p></div></main>`;
 }
+const passwordField = (id, name, label, autocomplete) => `<div><label for="${id}">${label}</label><div class="password-field"><input id="${id}" name="${name}" type="password" autocomplete="${autocomplete}" required ${name === 'password' && autocomplete === 'current-password' ? '' : 'minlength="8" '}maxlength="1024"><button type="button" data-action="toggle-password" data-target="${id}" aria-controls="${id}" aria-pressed="false" aria-label="顯示${label}">顯示</button></div></div>`;
 function loginPage() {
-  root.innerHTML = `<main class="login" id="main"><h1>登入</h1><form id="login-form" class="stack"><label>帳號<input name="username" autocomplete="username" required maxlength="64" autofocus></label><div><label for="login-password">密碼</label><div class="password-field"><input id="login-password" name="password" type="password" autocomplete="current-password" required maxlength="1024"><button type="button" data-action="toggle-password" aria-controls="login-password" aria-pressed="false" aria-label="顯示密碼">顯示</button></div></div><div class="form-error" role="alert" id="login-error"></div><button class="primary" type="submit">登入</button></form></main>`;
-  document.querySelector('#login-form').addEventListener('submit', async event => {
-    event.preventDefault(); const button = event.target.querySelector('[type=submit]'); button.disabled = true; button.textContent = '登入中…';
-    try { user = await api('/login', { method: 'POST', body: Object.fromEntries(new FormData(event.target)) }); location.hash = 'home'; await navigate('home'); }
-    catch (error) { const field = document.querySelector('#login-error'); if (field) field.textContent = error.message; else toast(error.message); button.disabled = false; button.textContent = '登入'; }
+  root.innerHTML = `<main class="login" id="main"><h1>登入</h1><form id="login-form" class="stack"><label>帳號<input name="username" autocomplete="username" required maxlength="64" autofocus></label>${passwordField('login-password', 'password', '密碼', 'current-password')}<div class="form-error" role="alert" id="login-error"></div><button class="primary" type="submit">登入</button></form><p class="switch">沒有帳號？<button data-action="show-register">註冊</button></p></main>`;
+  authForm('#login-form', '/login', '登入', '#login-error');
+}
+function registerPage() {
+  root.innerHTML = `<main class="login" id="main"><h1>註冊</h1><form id="register-form" class="stack"><label>帳號<span class="hint">3–64 個英數字或 _ . -</span><input name="username" autocomplete="username" required minlength="3" maxlength="64" pattern="[A-Za-z0-9_.\\-]+" autofocus></label>${passwordField('register-password', 'password', '密碼', 'new-password').replace('</label>', '<span class="hint">至少 8 個字元</span></label>')}${passwordField('register-confirm', 'confirm', '再次輸入密碼', 'new-password')}<div class="form-error" role="alert" id="register-error"></div><button class="primary" type="submit">註冊</button></form><p class="switch">已有帳號？<button data-action="show-login">登入</button></p></main>`;
+  authForm('#register-form', '/register', '註冊', '#register-error', form => form.elements.password.value === form.elements.confirm.value || '兩次輸入的密碼不一致');
+}
+function authForm(selector, path, label, errorSelector, check = () => true) {
+  document.querySelector(selector).addEventListener('submit', async event => {
+    event.preventDefault(); const form = event.target; const button = form.querySelector('[type=submit]');
+    const problem = check(form);
+    if (problem !== true) { document.querySelector(errorSelector).textContent = problem; form.elements.confirm?.focus(); return; }
+    button.disabled = true; button.textContent = `${label}中…`;
+    try { user = await api(path, { method: 'POST', body: Object.fromEntries(new FormData(form)) }); location.hash = 'home'; await navigate('home'); }
+    catch (error) { const field = document.querySelector(errorSelector); if (field) field.textContent = error.message; else toast(error.message); button.disabled = false; button.textContent = label; }
   });
 }
 function heading(title, action = '') { return `<div class="row between page-heading"><h1 tabindex="-1">${title}</h1>${action}</div>`; }
@@ -230,13 +241,15 @@ async function handleAction(button) {
   try {
     if (action === 'close-modal') modal.close();
     if (action === 'toggle-password') {
-      const input = document.querySelector('#login-password');
+      const input = document.querySelector(`#${button.dataset.target}`);
       const visible = input.type === 'password';
       input.type = visible ? 'text' : 'password';
       button.textContent = visible ? '隱藏' : '顯示';
       button.setAttribute('aria-pressed', String(visible));
-      button.setAttribute('aria-label', visible ? '隱藏密碼' : '顯示密碼');
+      button.setAttribute('aria-label', button.getAttribute('aria-label').replace(/^(顯示|隱藏)/, visible ? '隱藏' : '顯示'));
     }
+    if (action === 'show-register') registerPage();
+    if (action === 'show-login') loginPage();
     if (action === 'logout') { if (activeAttempt?.status === 'active') await saveProgress(); await api('/logout', { method: 'POST' }); user = null; clearInterval(timer); loginPage(); }
     if (action === 'new-question') await questionEditor();
     if (action === 'edit-question') await questionEditor(type, id);

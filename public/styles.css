@@ -91,3 +91,4 @@ dialog h2{margin:0}
 .check input{width:20px;min-height:20px;flex-shrink:0}
 .key-form{align-items:flex-end;margin-bottom:8px}
 .key-form label{flex:1;min-width:160px}
+.switch{margin-top:16px}

@@ -4,7 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { fileURLToPath } from 'node:url';
 import { randomInt } from 'node:crypto';
 import { openDatabase, transaction } from './db.js';
-import { hashToken, newToken, checkPassword, passwordHash, issueKey } from './auth.js';
+import { hashToken, newToken, checkPassword, passwordHash, issueKey, createAccount } from './auth.js';
 import { questionTypes, typeFor, validateQuestion } from './question-types.js';
 import { allQuestions, insertQuestion, importQuestions, parseCsv, exportCsv, unpack } from './questions.js';
 
@@ -34,6 +34,14 @@ export function createApp(db = openDatabase()) {
     next();
   });
   const dummyHash = passwordHash(newToken());
+  function startSession(req, res, user, status = 200) {
+    const token = newToken();
+    db.prepare('DELETE FROM sessions WHERE expires_at<=?').run(Date.now());
+    const old = cookieToken(req);
+    if (old) db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hashToken(old));
+    db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)').run(hashToken(token), user.id, Date.now() + cookieOptions.maxAge);
+    res.status(status).cookie('practice_session', token, cookieOptions).json({ username: user.username });
+  }
   const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: '登入嘗試過多，請稍後再試' } });
   app.post('/api/login', loginLimiter, async (req, res) => {
     const { username, password } = req.body || {};
@@ -42,12 +50,15 @@ export function createApp(db = openDatabase()) {
     if (!user || !valid) error('帳號或密碼不正確', 401);
     // Account deletion/password replacement during password verification invalidates the login.
     if (!db.prepare('SELECT id FROM users WHERE id=? AND password_hash=?').get(user.id, user.password_hash)) error('帳號或密碼已變更，請重新登入', 401);
-    const token = newToken();
-    db.prepare('DELETE FROM sessions WHERE expires_at<=?').run(Date.now());
-    const old = cookieToken(req);
-    if (old) db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hashToken(old));
-    db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)').run(hashToken(token), user.id, Date.now() + cookieOptions.maxAge);
-    res.cookie('practice_session', token, cookieOptions).json({ username: user.username });
+    startSession(req, res, user);
+  });
+  const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: '註冊次數過多，請稍後再試' } });
+  app.post('/api/register', registerLimiter, (req, res) => {
+    const { username, password, confirm } = req.body || {};
+    if (password !== confirm) error('兩次輸入的密碼不一致');
+    if (typeof username === 'string' && db.prepare('SELECT id FROM users WHERE username=?').get(username)) error('帳號已被使用', 409);
+    try { startSession(req, res, { id: createAccount(db, username, password), username }, 201); }
+    catch (err) { error(err.message?.includes('UNIQUE') ? '帳號已被使用' : err.message, err.message?.includes('UNIQUE') ? 409 : 400); }
   });
   app.post('/api/logout', sessionAuth, (req, res) => {
     db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hashToken(cookieToken(req)));
