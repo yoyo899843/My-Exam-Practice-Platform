@@ -50,10 +50,10 @@ async function home(id) {
   catalog = c;
   document.querySelector('#content').innerHTML = `${heading('首頁', '<button class="primary" data-page="practice">開始練習</button>')}<p>題目 ${c.total} 題（${Object.entries(typeLabels).map(([type, label]) => `${label} ${c.counts[type]}`).join('、')}）</p><p>完成 ${stats.completed} 次 · 作答 ${stats.answered} 題 · ${Math.floor(stats.seconds / 60)} 分鐘${stats.accuracy === null ? '' : ` · 選擇題正確率 ${stats.accuracy}%`}</p><h2>最近紀錄</h2>${records.length ? recordRows(records.slice(0, 3)) : '<p class="muted">尚無紀錄</p>'}`;
 }
-const chapterBoxes = chapters => chapters.length ? chapters.map(c => `<label class="check"><input type="checkbox" name="chapter" value="${escape(c)}">${escape(c)}</label>`).join('') : '<span class="muted">無</span>';
+const chapterBoxes = groups => groups.length ? groups.map(({ subject, chapters }) => `<fieldset class="chapter-group"><legend>${escape(subject)}</legend><div class="chapter-options">${chapters.map(chapter => `<label class="check"><input type="checkbox" name="chapter" value="${escape(JSON.stringify({ subject, chapter }))}">${escape(chapter)}</label>`).join('')}</div></fieldset>`).join('') : '<span class="muted">無</span>';
 async function practice(id) {
   catalog = await api('/catalog'); if (id !== renderId) return;
-  document.querySelector('#content').innerHTML = `${heading('練習')}<form id="practice-form" class="stack"><div class="filters"><label>科目<select name="subject">${options(catalog.subjects, '')}</select></label><fieldset class="chapters"><legend>章節（不勾選為全部）</legend><div id="chapter-list">${chapterBoxes(catalog.chapters)}</div></fieldset><label>語言<select name="language">${options(catalog.languages, '')}</select></label></div><div>${Object.entries(typeLabels).map(([type, label]) => `<div class="count-row"><span>${label}（可用 <span id="available-${type}">${catalog.counts[type]}</span> 題）</span><input type="number" name="${type}" aria-label="${label}題數" value="0" min="0" max="${Math.min(100, catalog.counts[type])}" step="1" inputmode="numeric"></div>`).join('')}</div><p>共 <span id="total-count">0</span> 題</p><div class="form-error" id="practice-error" role="alert"></div><div><button class="primary" id="start-button" disabled>開始</button></div></form>`;
+  document.querySelector('#content').innerHTML = `${heading('練習')}<form id="practice-form" class="stack"><div class="filters"><label>科目<select name="subject">${options(catalog.subjects, '')}</select></label><fieldset class="chapters"><legend>章節（不勾選為全部）</legend><div id="chapter-list">${chapterBoxes(catalog.chapterGroups)}</div></fieldset><label>語言<select name="language">${options(catalog.languages, '')}</select></label></div><div>${Object.entries(typeLabels).map(([type, label]) => `<div class="count-row"><span>${label}（可用 <span id="available-${type}">${catalog.counts[type]}</span> 題）</span><input type="number" name="${type}" aria-label="${label}題數" value="0" min="0" max="${Math.min(100, catalog.counts[type])}" step="1" inputmode="numeric"></div>`).join('')}</div><p>共 <span id="total-count">0</span> 題</p><div class="form-error" id="practice-error" role="alert"></div><div><button class="primary" id="start-button" disabled>開始</button></div></form>`;
   const form = document.querySelector('#practice-form');
   const total = () => { const count = Object.keys(typeLabels).reduce((n, t) => n + Number(form.elements[t].value || 0), 0); document.querySelector('#total-count').textContent = count; document.querySelector('#start-button').disabled = count < 1 || count > 200; };
   form.addEventListener('input', total);
@@ -65,16 +65,16 @@ async function practice(id) {
     if (event.target.name === 'subject') form.querySelectorAll('[name=chapter]').forEach(el => { el.checked = false; });
     try {
       const data = new FormData(form);
-      const query = new URLSearchParams([['subject', data.get('subject')], ['language', data.get('language')], ...data.getAll('chapter').map(c => ['chapter', c])]);
+      const query = new URLSearchParams([['subject', data.get('subject')], ['language', data.get('language')], ['chapterScopes', JSON.stringify(data.getAll('chapter').map(c => JSON.parse(c)))]]);
       const c = await api(`/catalog?${query}`); if (version !== filterVersion || !form.isConnected) return;
-      if (event.target.name === 'subject') document.querySelector('#chapter-list').innerHTML = chapterBoxes(c.chapters);
+      if (event.target.name === 'subject') document.querySelector('#chapter-list').innerHTML = chapterBoxes(c.chapterGroups);
       for (const type of Object.keys(typeLabels)) { const el = form.elements[type]; const max = Math.min(100, c.counts[type]); el.max = max; el.value = Math.min(Number(el.value), max); document.querySelector(`#available-${type}`).textContent = c.counts[type]; }
       total();
     } catch (error) { toast(error.message); }
   });
   form.addEventListener('submit', async event => {
     event.preventDefault(); const button = document.querySelector('#start-button'); button.disabled = true;
-    try { const values = Object.fromEntries(new FormData(form)); const counts = Object.fromEntries(Object.keys(typeLabels).map(t => [t, Number(values[t])])); const a = await api('/attempts', { method: 'POST', body: { counts, subject: values.subject, chapters: new FormData(form).getAll('chapter'), language: values.language } }); location.hash = `attempt/${a.id}`; }
+    try { const values = Object.fromEntries(new FormData(form)); const counts = Object.fromEntries(Object.keys(typeLabels).map(t => [t, Number(values[t])])); const a = await api('/attempts', { method: 'POST', body: { counts, subject: values.subject, chapterScopes: new FormData(form).getAll('chapter').map(c => JSON.parse(c)), language: values.language } }); location.hash = `attempt/${a.id}`; }
     catch (error) { document.querySelector('#practice-error').textContent = error.message; total(); }
   });
 }

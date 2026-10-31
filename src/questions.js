@@ -5,7 +5,19 @@ import { transaction } from './db.js';
 export const fields = ['type', 'subject', 'chapter', 'question', 'options', 'answer', 'explanation', 'language'];
 export function unpack(row, type) { return { ...row, type, answer: JSON.parse(row.answer), options: JSON.parse(row.options) }; }
 // The question bank is shared by all accounts; user_id only records who created a question.
+export function parseChapterScopes(value = []) {
+  let scopes = value;
+  if (typeof scopes === 'string') {
+    try { scopes = JSON.parse(scopes); }
+    catch { throw Object.assign(new Error('章節格式錯誤'), { status: 400 }); }
+  }
+  if (!Array.isArray(scopes) || scopes.length > 200 || scopes.some(s => !s || typeof s.subject !== 'string' || typeof s.chapter !== 'string' || !s.subject || !s.chapter || s.subject.length > 200 || s.chapter.length > 200)) {
+    throw Object.assign(new Error('章節格式錯誤'), { status: 400 });
+  }
+  return scopes;
+}
 export function allQuestions(db, filter = {}) {
+  const chapterScopes = parseChapterScopes(filter.chapterScopes);
   const types = filter.type ? [[filter.type, typeFor(filter.type)]] : Object.entries(questionTypes);
   return types.flatMap(([type, { table }]) => {
     const params = [];
@@ -13,6 +25,10 @@ export function allQuestions(db, filter = {}) {
     for (const field of ['subject', 'chapter', 'language']) {
       const values = [filter[field]].flat().filter(v => typeof v === 'string' && v);
       if (values.length) { where += ` AND ${field} IN (${values.map(() => '?').join(',')})`; params.push(...values); }
+    }
+    if (chapterScopes.length) {
+      where += ` AND (${chapterScopes.map(() => '(subject=? AND chapter=?)').join(' OR ')})`;
+      params.push(...chapterScopes.flatMap(s => [s.subject, s.chapter]));
     }
     return db.prepare(`SELECT * FROM ${table} WHERE ${where} ORDER BY id DESC`).all(...params).map(row => unpack(row, type));
   }).filter(q => !filter.search || [q.subject, q.chapter, q.question].some(x => x.toLowerCase().includes(filter.search.toLowerCase())));

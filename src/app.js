@@ -6,7 +6,7 @@ import { randomInt } from 'node:crypto';
 import { openDatabase, transaction } from './db.js';
 import { hashToken, newToken, checkPassword, passwordHash, issueKey, createAccount } from './auth.js';
 import { questionTypes, typeFor, validateQuestion } from './question-types.js';
-import { allQuestions, insertQuestion, importQuestions, parseCsv, exportCsv, unpack } from './questions.js';
+import { allQuestions, insertQuestion, importQuestions, parseCsv, exportCsv, unpack, parseChapterScopes } from './questions.js';
 
 const error = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const publicQuestion = ({ answer, explanation, user_id, ...q }) => q;
@@ -73,9 +73,11 @@ export function createApp(db = openDatabase()) {
   questionRouter.get('/catalog', (req, res) => {
     const questions = allQuestions(db);
     const filtered = allQuestions(db, req.query);
+    const subjects = [...new Set(questions.map(q => q.subject))].sort();
     res.json({ total: questions.length, counts: Object.fromEntries(Object.keys(questionTypes).map(t => [t, filtered.filter(q => q.type === t).length])),
-      subjects: [...new Set(questions.map(q => q.subject))].sort(),
+      subjects,
       chapters: [...new Set(questions.filter(q => !req.query.subject || q.subject === req.query.subject).map(q => q.chapter))].sort(),
+      chapterGroups: subjects.filter(subject => !req.query.subject || subject === req.query.subject).map(subject => ({ subject, chapters: [...new Set(questions.filter(q => q.subject === subject).map(q => q.chapter))].sort() })),
       languages: [...new Set(questions.map(q => q.language))].sort() });
   });
   questionRouter.get('/questions/export', (req, res) => res.type('text/csv; charset=utf-8').attachment('questions.csv').send(exportCsv(allQuestions(db, req.query))));
@@ -148,12 +150,13 @@ export function createApp(db = openDatabase()) {
   });
   attemptRouter.post('/attempts', (req, res) => {
     const { counts, subject, chapters = [], language } = req.body || {};
+    const chapterScopes = parseChapterScopes(req.body?.chapterScopes);
     if (!Array.isArray(chapters) || chapters.length > 200 || chapters.some(c => typeof c !== 'string')) error('章節格式錯誤');
     if (!counts || typeof counts !== 'object' || Array.isArray(counts)) error('請選擇題數');
     for (const [type, count] of Object.entries(counts)) { typeFor(type); if (!Number.isInteger(count) || count < 0 || count > 100) error('每種題型請選擇 0–100 題'); }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total < 1 || total > 200) error('每次練習請選擇 1–200 題');
-    const pool = allQuestions(db, { subject, chapter: chapters, language });
+    const pool = allQuestions(db, { subject, chapter: chapters, chapterScopes, language });
     const selected = [];
     for (const [type, count] of Object.entries(counts)) {
       const available = pool.filter(q => q.type === type);
@@ -161,7 +164,8 @@ export function createApp(db = openDatabase()) {
       for (let i = available.length - 1; i > 0; i--) { const j = randomInt(i + 1); [available[i], available[j]] = [available[j], available[i]]; }
       selected.push(...available.slice(0, count));
     }
-    const id = Number(db.prepare('INSERT INTO attempts(user_id,title,questions_json,started_at) VALUES(?,?,?,?)').run(req.user.id, [subject || '綜合練習', chapters.join('、')].filter(Boolean).join(' · '), JSON.stringify(selected), now()).lastInsertRowid);
+    const chapterTitle = chapterScopes.length ? chapterScopes.map(s => subject ? s.chapter : `${s.subject} / ${s.chapter}`).join('、') : chapters.join('、');
+    const id = Number(db.prepare('INSERT INTO attempts(user_id,title,questions_json,started_at) VALUES(?,?,?,?)').run(req.user.id, [subject || '綜合練習', chapterTitle].filter(Boolean).join(' · '), JSON.stringify(selected), now()).lastInsertRowid);
     req.params.id = id;
     res.status(201).json(attemptView(getAttempt(req)));
   });

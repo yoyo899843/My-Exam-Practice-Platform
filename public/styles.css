@@ -86,7 +86,11 @@ dialog h2{margin:0}
 @media(max-height:500px) and (orientation:landscape){.exam-main{padding:8px 16px}.exam-footer-inner>div:first-child>.row{margin-bottom:4px!important}}
 .chapters{grid-column:1/-1;border:0;padding:0;margin:0;min-width:0}
 .chapters legend{padding:0;margin-bottom:4px}
-#chapter-list{display:flex;flex-wrap:wrap;gap:0 16px}
+#chapter-list{display:grid;gap:12px}
+.chapter-group{border:1px solid var(--line);border-radius:4px;padding:4px 12px 8px;margin:0;min-width:0}
+.chapter-group legend{padding:0 4px;margin:0;font-weight:600;overflow-wrap:anywhere;max-width:100%}
+.chapter-options{display:flex;flex-wrap:wrap;gap:0 16px}
+.chapter-options .check{min-width:0;overflow-wrap:anywhere}
 .check{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer}
 .check input{width:20px;min-height:20px;flex-shrink:0}
 .key-form{align-items:flex-end;margin-bottom:8px}

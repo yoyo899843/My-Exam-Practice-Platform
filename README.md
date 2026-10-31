@@ -69,6 +69,8 @@ npm run account -- delete yourname --confirm
 
 清單與匯出支援 `type`、`subject`、`chapter`、`language`、`search` 查詢參數（`chapter` 可重複以選多個章節）；清單另外支援 `page`、`limit`（最多 100）。Catalog 的各題型題數支援範圍篩選。
 
+Catalog 另提供 `chapterGroups`，依科目列出章節。練習頁依此分組顯示；跨科目勾選章節時，以 `chapterScopes` 指定 `[{"subject":"數學","chapter":"第一章"}]`，避免同名章節混選。查詢參數使用 JSON 字串，建立練習時使用陣列；空陣列表示不限制章節，原有 `chapter`／`chapters` 篩選仍可使用。
+
 ### 批次新增範例
 
 把下面內容儲存為 `questions.json`：
