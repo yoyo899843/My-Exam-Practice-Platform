@@ -19,7 +19,7 @@ export function createApp(db = openDatabase()) {
   app.locals.db = db;
   if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
   app.disable('x-powered-by');
-  app.use(helmet({ contentSecurityPolicy: { directives: { 'script-src': ["'self'"], 'style-src': ["'self'", "'unsafe-inline'"], 'form-action': ["'self'"], 'default-src': ["'self'"], 'upgrade-insecure-requests': process.env.NODE_ENV === 'production' ? [] : null } } }));
+  app.use(helmet({ contentSecurityPolicy: { directives: { 'script-src': ["'self'"], 'style-src': ["'self'", "'unsafe-inline'"], 'img-src': ["'self'", 'https:', 'data:'], 'form-action': ["'self'"], 'default-src': ["'self'"], 'upgrade-insecure-requests': process.env.NODE_ENV === 'production' ? [] : null } } }));
   app.use(express.json({ limit: '5mb' }));
   app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   const cookieOptions = { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 8 * 60 * 60 * 1000 };
@@ -214,6 +214,9 @@ export function createApp(db = openDatabase()) {
   });
   app.use('/api', sessionAuth, accountRouter);
   app.use('/api', (_req, _res) => error('找不到此 API', 404));
+  // Serve only the browser entry points; keep the rest of node_modules private.
+  app.get('/vendor/marked.js', (_req, res) => res.sendFile(fileURLToPath(new URL('../node_modules/marked/lib/marked.esm.js', import.meta.url))));
+  app.get('/vendor/purify.js', (_req, res) => res.sendFile(fileURLToPath(new URL('../node_modules/dompurify/dist/purify.es.mjs', import.meta.url))));
   app.use(express.static(fileURLToPath(new URL('../public', import.meta.url))));
   app.use((err, _req, res, _next) => {
     const status = err.status || 500;

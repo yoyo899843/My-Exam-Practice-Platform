@@ -7,6 +7,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
+    "test": "node --test",
     "start": "node --env-file-if-exists=.env src/server.js",
     "dev": "node --env-file-if-exists=.env --watch src/server.js",
     "account": "node --env-file-if-exists=.env scripts/account.js"
@@ -14,8 +15,13 @@
   "dependencies": {
     "csv-parse": "^7.0.3",
     "csv-stringify": "^6.6.0",
+    "dompurify": "^3.4.18",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
-    "helmet": "^8.1.0"
+    "helmet": "^8.1.0",
+    "marked": "^18.2.1"
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.1"
   }
 }
