@@ -10,7 +10,7 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&a
 const duration = seconds => `${Math.floor(seconds / 3600) ? String(Math.floor(seconds / 3600)).padStart(2, '0') + ':' : ''}${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 const date = value => new Date(value).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 let user, catalog, activeAttempt, index = 0, bankPage = 1, bankFilter = {}, timer, saveDelay, saveQueue = Promise.resolve(), dirty = false, toastTimer;
-let renderId = 0;
+let renderId = 0, resultPanelOpen = true, resultWrongOnly = false;
 function toast(message) { const el = document.querySelector('#toast'); el.textContent = message; el.classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('visible'), 4500); }
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, { ...options, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'PracticeRoom', ...options.headers }, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
@@ -23,7 +23,7 @@ async function api(path, options = {}) {
 }
 const options = (values, selected, all = '全部') => `<option value="">${all}</option>${values.map(v => `<option value="${escape(v)}" ${v === selected ? 'selected' : ''}>${escape(v)}</option>`).join('')}`;
 function shell(page) {
-  const nav = [['home', '首頁'], ['practice', '練習'], ['bank', '題庫'], ['history', '紀錄'], ['account', '帳號']];
+  const nav = [['home', '首頁'], ['practice', '練習'], ['review', '錯題'], ['bank', '題庫'], ['history', '紀錄'], ['account', '帳號']];
   root.innerHTML = `<header class="topbar"><nav aria-label="主要導覽">${nav.map(([key, text]) => `<button class="nav-button ${page === key ? 'active' : ''}" data-page="${key}" ${page === key ? 'aria-current="page"' : ''}>${text}</button>`).join('')}</nav><div class="row"><span>${escape(user.username)}</span><button data-action="logout">登出</button></div></header><main class="page" id="main"><div id="content"><p class="muted">載入中…</p></div></main>`;
 }
 const passwordField = (id, name, label, autocomplete) => `<div><label for="${id}">${label}</label><div class="password-field"><input id="${id}" name="${name}" type="password" autocomplete="${autocomplete}" required ${name === 'password' && autocomplete === 'current-password' ? '' : 'minlength="8" '}maxlength="1024"><button type="button" data-action="toggle-password" data-target="${id}" aria-controls="${id}" aria-pressed="false" aria-label="顯示${label}">顯示</button></div></div>`;
@@ -92,7 +92,36 @@ async function bank(id) {
 }
 async function history(id) {
   const records = await api('/attempts'); if (id !== renderId) return;
-  document.querySelector('#content').innerHTML = `${heading('紀錄')}${records.length ? recordRows(records) : '<p class="muted">尚無紀錄</p>'}`;
+  document.querySelector('#content').innerHTML = `${heading('紀錄', '<button data-page="review">錯題複習</button>')}${records.length ? recordRows(records) : '<p class="muted">尚無紀錄</p>'}`;
+}
+const reviewChapterBoxes = groups => groups.map(({ subject, chapters }) => `<fieldset class="chapter-group"><legend>${escape(subject)}</legend><div class="chapter-options">${chapters.map(c => `<label class="check"><input type="checkbox" name="chapter" value="${escape(JSON.stringify({ subject, chapter: c.chapter }))}" data-total="${c.total}" data-pending="${c.pending}"><span>${escape(c.chapter)} <span class="muted">（<span class="chapter-count">${c.total}</span> 題）</span></span></label>`).join('')}</div></fieldset>`).join('');
+async function review(id) {
+  const data = await api('/review/catalog'); if (id !== renderId) return;
+  const content = document.querySelector('#content');
+  if (!data.total) { content.innerHTML = `${heading('錯題複習')}<p class="muted">紀錄中還沒有答錯的選擇題。練習交卷後，答錯或未作答的單選題、多選題會出現在這裡。</p><p><button class="primary" data-page="practice">開始練習</button></p>`; return; }
+  content.innerHTML = `${heading('錯題複習')}<p class="hint">從已交卷的紀錄中，找出答錯或未作答的單選題與多選題，共 ${data.total} 題。</p><form id="review-form" class="stack"><fieldset class="chapters"><legend>章節（不勾選為全部）</legend><div id="chapter-list">${reviewChapterBoxes(data.chapterGroups)}</div></fieldset><label class="check"><input type="checkbox" name="onlyPending">只複習最近一次仍答錯的題目（略過之後已答對的 ${data.total - data.pending} 題）</label><div class="count-row"><span>題數（可用 <span id="review-available"></span> 題）</span><input type="number" name="count" aria-label="複習題數" min="1" step="1" inputmode="numeric"></div><div class="form-error" id="review-error" role="alert"></div><div><button class="primary" id="review-start">開始複習</button></div></form>`;
+  const form = document.querySelector('#review-form'), countInput = form.elements.count, start = document.querySelector('#review-start');
+  let countEdited = false;
+  const update = () => {
+    const mode = form.elements.onlyPending.checked ? 'pending' : 'total';
+    const boxes = [...form.querySelectorAll('[name=chapter]')];
+    boxes.forEach(box => { box.closest('label').querySelector('.chapter-count').textContent = box.dataset[mode]; });
+    const chosen = boxes.filter(box => box.checked);
+    const available = (chosen.length ? chosen : boxes).reduce((n, box) => n + Number(box.dataset[mode]), 0), max = Math.min(200, available);
+    document.querySelector('#review-available').textContent = available;
+    countInput.max = max;
+    // The count follows the selection until the user types their own number.
+    if (!countEdited || Number(countInput.value) > max) countInput.value = max;
+    const count = Number(countInput.value);
+    start.disabled = !Number.isInteger(count) || count < 1 || count > max;
+  };
+  form.addEventListener('input', event => { if (event.target === countInput) countEdited = true; update(); });
+  update();
+  form.addEventListener('submit', async event => {
+    event.preventDefault(); start.disabled = true;
+    try { const a = await api('/review/attempts', { method: 'POST', body: { count: Number(countInput.value), onlyPending: form.elements.onlyPending.checked, chapterScopes: new FormData(form).getAll('chapter').map(c => JSON.parse(c)) } }); location.hash = `attempt/${a.id}`; }
+    catch (error) { document.querySelector('#review-error').textContent = error.message; update(); }
+  });
 }
 async function account(id) {
   const keys = await api('/keys'); if (id !== renderId) return;
@@ -174,23 +203,48 @@ function apiHelp() {
 const keyFor = q => `${q.type}:${q.id}`;
 function questionNavigation(questions) {
   const pages = [...new Set([0, index - 1, index, index + 1, questions.length - 1])].filter(i => i >= 0 && i < questions.length).sort((a, b) => a - b);
+  const review = activeAttempt.status === 'submitted';
   return pages.map((i, position) => {
-    const answered = hasAnswer(questions[i]);
+    // While answering ✓ means answered; after submitting it means correct, matching the result table.
+    const answered = hasAnswer(questions[i]), state = review && resultState(questions[i]);
+    const mark = review ? (state.name === 'ungraded' ? '' : state.mark) : answered ? '✓' : '';
     const gap = position > 0 && i - pages[position - 1] > 1 ? '<span aria-hidden="true">…</span>' : '';
-    return `${gap}<button class="dot ${answered ? 'answered' : ''} ${i === index ? 'current' : ''}" data-action="exam-page" data-index="${i}" aria-label="第 ${i + 1} 題${answered ? '，已作答' : '，未作答'}" ${i === index ? 'aria-current="page"' : ''}>${i + 1}${answered ? '<span class="mark">✓</span>' : ''}</button>`;
+    return `${gap}<button class="dot ${review ? state.name : answered ? 'answered' : ''} ${i === index ? 'current' : ''}" data-action="exam-page" data-index="${i}" aria-label="第 ${i + 1} 題，${review ? state.label : answered ? '已作答' : '未作答'}" ${i === index ? 'aria-current="page"' : ''}>${i + 1}${mark ? `<span class="mark">${mark}</span>` : ''}</button>`;
   }).join('');
 }
 function hasAnswer(q) { const value = activeAttempt.answers[keyFor(q)]; return Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined && String(value).trim() !== ''; }
-function answerDisplay(value, q) {
-  if (value === null || value === undefined || value === '' || Array.isArray(value) && !value.length) return '（未作答）';
-  const option = i => `<div class="review-option"><span>${String.fromCharCode(65 + i)}.</span><div class="markdown">${renderMarkdown(q.options[i])}</div></div>`;
-  if (q.type === 'single') return option(value);
-  if (q.type === 'multiple') return [...value].sort((a, b) => a - b).map(option).join('');
-  return renderMarkdown(value);
+const resultFor = q => activeAttempt.results?.find(r => r.key === keyFor(q));
+// Only choice questions are graded; written answers are compared by the learner.
+function resultState(q) {
+  const correct = resultFor(q)?.correct;
+  if (correct === true) return { name: 'correct', mark: '✓', label: '答對' };
+  if (correct === false) return { name: 'wrong', mark: '✗', label: hasAnswer(q) ? '答錯' : '答錯（未作答）' };
+  return { name: 'ungraded', mark: '—', label: '自行對照' };
+}
+function resultTable(a) {
+  const states = a.questions.map(resultState), wrong = states.filter(s => s.name === 'wrong').length;
+  const legend = [['correct', '✓', '答對'], ['wrong', '✗', '答錯'], ['ungraded', '—', '自行對照']].filter(([name]) => states.some(s => s.name === name))
+    .map(([name, mark, label]) => `<span class="legend-item ${name}"><span class="result-mark" aria-hidden="true">${mark}</span>${label}</span>`).join('');
+  const cells = states.map((s, i) => `<button class="result-cell ${s.name}${i === index ? ' current' : ''}" data-action="exam-page" data-index="${i}" aria-label="第 ${i + 1} 題，${s.label}"${i === index ? ' aria-current="true"' : ''}><span class="result-number">${i + 1}</span><span class="result-mark" aria-hidden="true">${s.mark}</span></button>`).join('');
+  return `<details class="result-panel" id="result-panel"${resultPanelOpen ? ' open' : ''}><summary>作答結果 <span class="small muted">${wrong ? `答錯 ${wrong} 題 · ` : ''}點題號可跳到該題</span></summary><div class="row between result-tools"><div class="row small">${legend}</div>${wrong ? `<label class="check small"><input type="checkbox" id="wrong-only"${resultWrongOnly ? ' checked' : ''}>只看錯題</label>` : ''}</div><div class="result-grid${resultWrongOnly && wrong ? ' wrong-only' : ''}" id="result-grid" role="group" aria-label="各題結果">${cells}</div></details>`;
+}
+const writtenDisplay = value => value === null || value === undefined || value === '' ? '（未作答）' : renderMarkdown(value);
+// After submitting, every option is shown with the correct answer and the learner's choice marked.
+function reviewChoices(q, value) {
+  const chosen = new Set(q.type === 'single' ? (Number.isInteger(value) ? [value] : []) : Array.isArray(value) ? value : []);
+  const correct = new Set(q.type === 'single' ? [q.answer] : q.answer);
+  const letters = set => [...set].sort((x, y) => x - y).map(i => String.fromCharCode(65 + i)).join('、') || '未作答';
+  const tag = (name, mark, text) => `<span class="choice-tag ${name}">${mark ? `<span aria-hidden="true">${mark} </span>` : ''}${text}</span>`;
+  const items = q.options.map((option, i) => {
+    const isCorrect = correct.has(i), isChosen = chosen.has(i);
+    const tags = (isCorrect ? tag('correct', '✓', '正確答案') : '') + (isChosen ? (isCorrect ? tag('chosen', '', '你的選擇') : tag('wrong', '✗', '你的選擇')) : isCorrect && q.type === 'multiple' ? tag('missed', '', '漏選') : '');
+    return `<li class="review-choice${isCorrect ? ' correct' : isChosen ? ' wrong' : ''}${isChosen ? ' chosen' : ''}"><span class="choice-letter" aria-hidden="true">${String.fromCharCode(65 + i)}</span><span class="sr-only">選項 ${String.fromCharCode(65 + i)}</span><div class="option-text markdown">${renderMarkdown(option)}</div>${tags ? `<span class="choice-tags">${tags}</span>` : ''}</li>`;
+  }).join('');
+  return `<p class="answer-summary">你的答案：<strong>${letters(chosen)}</strong><span class="muted" aria-hidden="true"> · </span>正確答案：<strong>${letters(correct)}</strong></p><ol class="review-choices" aria-label="選項">${items}</ol>`;
 }
 async function loadAttempt(attemptId, id) {
   const a = await api(`/attempts/${attemptId}`); if (id !== renderId) return;
-  activeAttempt = a; index = a.status === 'active' ? a.current_index : 0; dirty = false;
+  activeAttempt = a; index = a.status === 'active' ? a.current_index : 0; dirty = false; resultWrongOnly = false;
   renderExam();
   if (a.status === 'active') timer = setInterval(updateTimer, 1000);
 }
@@ -201,8 +255,18 @@ function renderExam() {
   const result = a.results?.find(r => r.key === keyFor(q));
   const graded = a.results?.filter(r => r.correct !== null) || [];
   const correct = graded.filter(r => r.correct).length;
-  root.innerHTML = `<main class="exam" id="main"><header class="exam-header"><span class="timer" id="timer">${review ? duration(a.duration_seconds) : '00:00'}</span><div class="row">${review ? '<button data-page="history">返回</button>' : `<button data-action="leave-attempt">稍後繼續</button><button class="primary" data-action="submit-attempt">交卷</button>`}</div></header><section class="exam-main"><div class="exam-content">${review ? `<div class="review-meta row between"><span>已交卷${graded.length ? ` · 答對 ${correct} / ${graded.length}` : ''}</span><span class="small muted">${date(a.submitted_at)}</span></div>` : ''}<div class="row between"><span class="small muted">${typeLabels[q.type]} · ${escape(q.subject)} / ${escape(q.chapter)}</span><label class="question-picker"><span class="sr-only">跳至題目</span><select id="question-jump">${a.questions.map((_q, i) => `<option value="${i}" ${i === index ? 'selected' : ''}>第 ${i + 1} / ${a.questions.length} 題</option>`).join('')}</select></label></div><h1 class="sr-only">第 ${index + 1} 題</h1><div class="markdown question-heading" tabindex="-1" id="question-heading" role="group" aria-label="第 ${index + 1} 題">${renderMarkdown(q.question)}</div>${review ? `<div class="row">${result.correct === null ? '' : `<span class="${result.correct ? '' : 'danger'}">${result.correct ? '正確' : '錯誤'}</span>`}<button data-action="explanation">解析</button></div><div class="answer-box"><h2>你的答案</h2><div class="markdown">${answerDisplay(a.answers[keyFor(q)], q)}</div></div><div class="answer-box"><h2>${result.correct === null ? '參考答案' : '正確答案'}</h2><div class="markdown">${answerDisplay(q.answer, q)}</div></div>` : ['single', 'multiple'].includes(q.type) ? `${q.type === 'multiple' ? '<p class="small muted">複選</p>' : ''}<fieldset class="option-list" style="border:0;padding:0"><legend class="sr-only">答案選項</legend>${q.options.map((option, i) => `<div class="option"><input id="answer-option-${i}" aria-labelledby="answer-letter-${i} answer-text-${i}" type="${q.type === 'single' ? 'radio' : 'checkbox'}" name="answer" value="${i}" ${q.type === 'single' ? a.answers[keyFor(q)] === i ? 'checked' : '' : a.answers[keyFor(q)]?.includes(i) ? 'checked' : ''}><label id="answer-letter-${i}" for="answer-option-${i}">${String.fromCharCode(65 + i)}</label><div class="option-text markdown" id="answer-text-${i}">${renderMarkdown(option)}</div></div>`).join('')}</fieldset><p class="small muted kbd-hint">鍵盤：按 A–${String.fromCharCode(64 + q.options.length)}${q.options.length <= 9 ? ` 或 1–${q.options.length}` : ''} ${q.type === 'single' ? '選擇答案' : '勾選／取消'}，← → 切換題目</p>` :`<label>你的答案<textarea class="written-answer" id="written-answer" name="answer" maxlength="50000">${escape(a.answers[keyFor(q)] || '')}</textarea></label>`}</div></section><footer class="exam-footer"><div class="exam-footer-inner"><div><div class="row between" style="margin-bottom:10px"><span class="small muted" id="answered-count">${review ? '' : `已作答 ${answered} / ${a.questions.length}`}</span>${review ? '' : `<span class="saving" id="save-status" role="status">${dirty ? '未儲存' : '已儲存'}</span>`}</div><nav class="question-dots" aria-label="題目導覽">${questionNavigation(a.questions)}</nav></div><div class="row"><button data-action="exam-prev" ${index === 0 ? 'disabled' : ''}>上一題</button><button class="primary" data-action="exam-next" ${index === a.questions.length - 1 ? 'disabled' : ''}>下一題</button></div></div></footer></main>`;
+  const wrongIndexes = review ? a.questions.flatMap((x, i) => resultFor(x)?.correct === false ? [i] : []) : [];
+  const nextWrong = wrongIndexes.find(i => i > index) ?? wrongIndexes.find(i => i !== index);
+  root.innerHTML =`<main class="exam" id="main"><header class="exam-header"><span class="timer" id="timer">${review ? duration(a.duration_seconds) : '00:00'}</span><div class="row">${review ? '<button data-page="history">返回</button>' : `<button data-action="leave-attempt">稍後繼續</button><button class="primary" data-action="submit-attempt">交卷</button>`}</div></header><section class="exam-main"><div class="exam-content">${review ? `<div class="review-meta row between"><span>已交卷${graded.length ? ` · 答對 ${correct} / ${graded.length}` : ''}</span><span class="small muted">${date(a.submitted_at)}</span></div>${resultTable(a)}` : ''}<div class="row between"><span class="small muted">${typeLabels[q.type]} · ${escape(q.subject)} / ${escape(q.chapter)}</span><label class="question-picker"><span class="sr-only">跳至題目</span><select id="question-jump">${a.questions.map((_q, i) => `<option value="${i}" ${i === index ? 'selected' : ''}>第 ${i + 1} / ${a.questions.length} 題</option>`).join('')}</select></label></div><h1 class="sr-only">第 ${index + 1} 題</h1><div class="markdown question-heading" tabindex="-1" id="question-heading" role="group" aria-label="第 ${index + 1} 題">${renderMarkdown(q.question)}</div>${review ? `<div class="row">${result.correct === null ? '' : `<span class="result-status ${result.correct ? 'correct' : 'wrong'}"><span aria-hidden="true">${result.correct ? '✓' : '✗'} </span>${result.correct ? '正確' : '錯誤'}</span>`}<button data-action="explanation">解析</button>${nextWrong === undefined ? '' : `<button data-action="exam-page" data-index="${nextWrong}" id="next-wrong">下一個錯題（第 ${nextWrong + 1} 題）</button>`}</div>${['single', 'multiple'].includes(q.type) ? reviewChoices(q, a.answers[keyFor(q)]) : `<div class="answer-box"><h2>你的答案</h2><div class="markdown">${writtenDisplay(a.answers[keyFor(q)])}</div></div><div class="answer-box"><h2>參考答案</h2><div class="markdown">${writtenDisplay(q.answer)}</div></div>`}` : ['single', 'multiple'].includes(q.type) ? `${q.type === 'multiple' ? '<p class="small muted">複選</p>' : ''}<fieldset class="option-list" style="border:0;padding:0"><legend class="sr-only">答案選項</legend>${q.options.map((option, i) => `<div class="option"><input id="answer-option-${i}" aria-labelledby="answer-letter-${i} answer-text-${i}" type="${q.type === 'single' ? 'radio' : 'checkbox'}" name="answer" value="${i}" ${q.type === 'single' ? a.answers[keyFor(q)] === i ? 'checked' : '' : a.answers[keyFor(q)]?.includes(i) ? 'checked' : ''}><label id="answer-letter-${i}" for="answer-option-${i}">${String.fromCharCode(65 + i)}</label><div class="option-text markdown" id="answer-text-${i}">${renderMarkdown(option)}</div></div>`).join('')}</fieldset><p class="small muted kbd-hint">鍵盤：按 A–${String.fromCharCode(64 + q.options.length)}${q.options.length <= 9 ? ` 或 1–${q.options.length}` : ''} ${q.type === 'single' ? '選擇答案' : '勾選／取消'}，← → 切換題目</p>` :`<label>你的答案<textarea class="written-answer" id="written-answer" name="answer" maxlength="50000">${escape(a.answers[keyFor(q)] || '')}</textarea></label>`}</div></section><footer class="exam-footer"><div class="exam-footer-inner"><div><div class="row between" style="margin-bottom:10px"><span class="small muted" id="answered-count">${review ? '' : `已作答 ${answered} / ${a.questions.length}`}</span>${review ? '' : `<span class="saving" id="save-status" role="status">${dirty ? '未儲存' : '已儲存'}</span>`}</div><nav class="question-dots" aria-label="題目導覽">${questionNavigation(a.questions)}</nav></div><div class="row"><button data-action="exam-prev" ${index === 0 ? 'disabled' : ''}>上一題</button><button class="primary" data-action="exam-next" ${index === a.questions.length - 1 ? 'disabled' : ''}>下一題</button></div></div></footer></main>`;
   document.querySelector('#question-jump').addEventListener('change', event => { examPage(Number(event.target.value)).catch(error => toast(error.message)); });
+  if (review) {
+    const panel = document.querySelector('#result-panel'), grid = document.querySelector('#result-grid');
+    // Long attempts scroll inside the table; keep the current question's cell in view.
+    const center = () => { const cell = grid.querySelector('.current'); if (cell && grid.scrollHeight > grid.clientHeight) grid.scrollTop = cell.offsetTop - (grid.clientHeight - cell.offsetHeight) / 2; };
+    panel.addEventListener('toggle', () => { resultPanelOpen = panel.open; if (panel.open) center(); });
+    document.querySelector('#wrong-only')?.addEventListener('change', event => { resultWrongOnly = event.target.checked; grid.classList.toggle('wrong-only', resultWrongOnly); center(); });
+    center();
+  }
   if (!review) {
     updateTimer();
     root.querySelectorAll('.option').forEach(option => option.addEventListener('click', event => {
@@ -249,8 +313,8 @@ async function navigate(page) {
   const id = ++renderId; clearInterval(timer);
   if (!user) return;
   if (page.startsWith('attempt/')) { root.innerHTML = '<p class="page muted">載入中…</p>'; await loadAttempt(page.slice(8), id); return; }
-  activeAttempt = null; shell(['home', 'practice', 'bank', 'history', 'account'].includes(page) ? page : 'home');
-  await ({ home, practice, bank, history, account }[page] || home)(id);
+  activeAttempt = null; shell(['home', 'practice', 'review', 'bank', 'history', 'account'].includes(page) ? page : 'home');
+  await ({ home, practice, review, bank, history, account }[page] || home)(id);
   if (id === renderId && document.activeElement === document.body) document.querySelector('#content h1')?.focus({ preventScroll: true });
 }
 async function route(page) { if (activeAttempt?.status === 'active') await saveProgress(); if (location.hash.slice(1) === page) await navigate(page); else location.hash = page; }

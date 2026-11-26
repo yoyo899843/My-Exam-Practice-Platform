@@ -101,11 +101,12 @@ test('renders the bank, live editor preview, all answer types and review with wo
   }
   document.querySelector('[data-action="submit-attempt"]').click();
   document.querySelector('[data-action="confirm-submit"]').click();
-  await until(() => document.querySelectorAll('.answer-box').length === 2);
-  assert.equal(document.querySelector('.answer-box .review-option em').textContent, '其他');
-  assert.equal(document.querySelectorAll('.answer-box')[1].querySelector('strong').textContent, '正確');
+  await until(() => document.querySelector('.review-choices'));
+  assert.equal(document.querySelectorAll('.review-choice .option-text').length, 2, 'every option is shown after submitting');
+  assert.equal(document.querySelector('.review-choice.chosen .option-text em').textContent, '其他');
+  assert.equal(document.querySelector('.review-choice.correct .option-text strong').textContent, '正確');
   await jump(1);
-  assert.equal(document.querySelectorAll('.answer-box')[1].querySelectorAll('.review-option').length, 2);
+  assert.equal(document.querySelectorAll('.review-choice.correct').length, 2);
   for (const i of [2, 3]) {
     await jump(i);
     assert.equal(document.querySelector('.answer-box strong').textContent, '我的答案');

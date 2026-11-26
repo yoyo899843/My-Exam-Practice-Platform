@@ -7,6 +7,7 @@ import { openDatabase, transaction } from './db.js';
 import { hashToken, newToken, checkPassword, passwordHash, issueKey, createAccount } from './auth.js';
 import { questionTypes, typeFor, validateQuestion } from './question-types.js';
 import { allQuestions, insertQuestion, importQuestions, parseCsv, exportCsv, unpack, parseChapterScopes } from './questions.js';
+import { wrongQuestions, reviewCatalog } from './review.js';
 
 const error = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const publicQuestion = ({ answer, explanation, user_id, ...q }) => q;
@@ -166,6 +167,21 @@ export function createApp(db = openDatabase()) {
     }
     const chapterTitle = chapterScopes.length ? chapterScopes.map(s => subject ? s.chapter : `${s.subject} / ${s.chapter}`).join('、') : chapters.join('、');
     const id = Number(db.prepare('INSERT INTO attempts(user_id,title,questions_json,started_at) VALUES(?,?,?,?)').run(req.user.id, [subject || '綜合練習', chapterTitle].filter(Boolean).join(' · '), JSON.stringify(selected), now()).lastInsertRowid);
+    req.params.id = id;
+    res.status(201).json(attemptView(getAttempt(req)));
+  });
+  // Wrong-question review reads history only; a review session is saved as a new attempt like any practice.
+  attemptRouter.get('/review/catalog', (req, res) => res.json(reviewCatalog(wrongQuestions(db, req.user.id))));
+  attemptRouter.post('/review/attempts', (req, res) => {
+    const { count, onlyPending = false } = req.body || {};
+    const chapterScopes = parseChapterScopes(req.body?.chapterScopes);
+    if (!Number.isInteger(count) || count < 1 || count > 200) error('每次複習請選擇 1–200 題');
+    if (typeof onlyPending !== 'boolean') error('複習範圍格式錯誤');
+    const pool = wrongQuestions(db, req.user.id).filter(item => (!onlyPending || !item.lastCorrect) && (!chapterScopes.length || chapterScopes.some(s => s.subject === item.question.subject && s.chapter === item.question.chapter))).map(item => item.question);
+    if (pool.length < count) error(pool.length ? `符合條件的錯題只有 ${pool.length} 題` : '沒有符合條件的錯題');
+    for (let i = pool.length - 1; i > 0; i--) { const j = randomInt(i + 1); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    const title = ['錯題複習', chapterScopes.map(s => `${s.subject} / ${s.chapter}`).join('、')].filter(Boolean).join(' · ');
+    const id = Number(db.prepare('INSERT INTO attempts(user_id,title,questions_json,started_at) VALUES(?,?,?,?)').run(req.user.id, title, JSON.stringify(pool.slice(0, count)), now()).lastInsertRowid);
     req.params.id = id;
     res.status(201).json(attemptView(getAttempt(req)));
   });
